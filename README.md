@@ -91,12 +91,9 @@ let unisseySession;
 
 // 1. Set callbacks for SDK events
 
-// get a reference to the UnisseySdk event emmitter
-const unisseySdkEventEmitter = UnisseySdk.getReferenceToEventEmitter();
-
-// and attach listeners for the events we are interested in.
+// attach listeners for the events we are interested in.
 //    SDK status listener
-unisseySdkEventEmitter.on(AcquisitionEvent.STATUS, (status) =>
+UnisseySdk.addListener(AcquisitionEvent.STATUS, (status) =>
 	// status : StatusEvent (string)
     //  StatusEvent.NO_SESSION ("no-session") --> No (or no more) UnisseySession. Any reference to previous session should be removed.
     //  StatusEvent.READY ("ready") --> the session is ready to start a capture
@@ -111,7 +108,7 @@ unisseySdkEventEmitter.on(AcquisitionEvent.STATUS, (status) =>
 );
 
 //    Issue listener
-unisseySdkEventEmitter.on(AcquisitionEvent.ISSUE, (type, value) => {
+UnisseySdk.addListener(AcquisitionEvent.ISSUE, (type, value) => {
 	// type : IssueType (string)
     // IssueType.NO_FACE ("no-face") --> No face is detected after 3 seconds (default). (The delay can be configured with noFaceIssueDelayMs in FaceCheckerConfig) ) 
     //        value can be ignored
@@ -131,13 +128,13 @@ unisseySdkEventEmitter.on(AcquisitionEvent.ISSUE, (type, value) => {
 });
 
 //    Acquisition progression listener
-unisseySdkEventEmitter.on(AcquisitionEvent.PROGRESS, (progress) => {
+UnisseySdk.addListener(AcquisitionEvent.PROGRESS, (progress) => {
 	// progress : progression value in range [0, 1]
 	console.log(`${(progress * 100).toFixed(0)}%`);
 });
 
 //    Face position information listener
-unisseySdkEventEmitter.on(AcquisitionEvent.FACE_INFO, (type, value) => {
+UnisseySdk.addListener(AcquisitionEvent.FACE_INFO, (type, value) => {
 	// type : FaceInfoType (string)
 	//      FaceInfoType.FACE_VALID ('faceValid')  -> the face position is valid and stable. We start the acquisition. 
     //                                    Status is going to be StatusEvent.RUNNING
@@ -207,8 +204,9 @@ The `SessionStatus` reflects the lifecycle's stage. Here's a replication of the 
 **1. Summary**
 ```javascript
 class UnisseySdk {
-  static getReferenceToEventEmitter(): EventEmitter;
-  static setLogLevel(logLevel: LogLevel = LogLevel.WARNING)
+  static addListener(eventType: AcquisitionEvent, f: (...args: any[]) => void): typeof UnisseySdk;
+  static removeListener(eventType: AcquisitionEvent, f: (...args: any[]) => void): typeof UnisseySdk;
+  static setLogLevel(logLevel: LogLevel = LogLevel.WARNING);
 
   static async createSession(
     videoElem: HTMLVideoElement,
@@ -320,6 +318,7 @@ type SessionConfig = {
           innerBorder: [R,G,B,Alpha],  // The oval/rect border color (default : [255, 255, 255, 1])
           progressColor: [R,G,B,Alpha],  // The progress bar (running over the inner border) color (default : [0, 188, 212, 1])
         };
+        filter: string; // a CSS-like filter string, that applies an effect to the video preview. Example : "blur(5px)"
     }; 
   cameraConfig?: CameraConfig;    // To modify the camera parameters. You generally don't have to change these values, as the presets define standard default values for each use case. 
       {
@@ -362,6 +361,7 @@ type SessionConfig = {
     //        {
     //          mode: IadMode; // (default: IadMode.DISABLED). Possible values are : 
     //                  DISABLED = "disabled", // No IAD (equivalent to keep 'iadConfig' undefined)
+    //                  MEDIA_INTEGRITY = "media-integrity", // No IAD measures as such, but compute a hash to ensure that the media is not corrupted after capture
     //                  PASSIVE = "passive", // Passive IAD
     //                  PASSIVE_LT = "passive-lt",  // only does IAD measures that don't need randomness (thus don't need IAD preparation data)
     //                  ACTIVE_FALLBACK = "active-fallback", // Passive IAD if strong method can be used else fallback to an active challenge
@@ -483,32 +483,60 @@ enum LogLevel {
 Default: `WARNING`
 
 
-### `static getReferenceToEventEmitter`
-This method returns a reference to the [EventEmitter](#unisseyeventemitter) and allows to attach listeners to get information about the current session.
+### `static addListener`
+This static method allows to attach listeners to Unissey SDK Acquisition Events in order to get information about the current session.
 (We recommend to detach listeners when you don't use UnisseySDK anymore, to avoir any possible leak.)
 
 ```javascript
-getReferenceToEventEmitter():EventEmitter
+addListener(eventType: AcquisitionEvent, f: (...args: any[]) => void)
 ```
+#### parameters:
+##### `eventType`: `AcquisitionEvent`
+see [UnisseySdk Events](#unisseyevents) for more information on events that can be listened to.
+##### `f`: a function
+see [UnisseySdk Events](#unisseyevents) for more information on events that can be listened to.
+
 #### usage:
 ```javascript
-    const unisseySDKEventEmitter = UnisseySdk.getReferenceToEventEmitter();
-    unisseySdkEventEmitter.on(AcquisitionEvent.STATUS, (status) => {
-      ...
-    });
-    ...
+    const sdkJsListener_status = (status: StatusEvent) => {...};
+    const sdkJsListener_faceInfo = (type: FaceInfoType, value: number /* value?:FaceMoveDirection*/) => {...};
+    UnisseySdk.addListener(AcquisitionEvent.STATUS, sdkJsListener_status)
+      .addListener(AcquisitionEvent.FACE_INFO, sdkJsListener_faceInfo);
 ```
 
-#### Return value: **`EventEmitter`**
-  see [EventEmitter](#unisseyeventemitter) for more information on events that can be listened to.
+#### Return value: **`UnisseySdk`**
+  return reference to UnisseySdk class to allow chaining
 
 
+### `static removeListener`
+This static method allows to detach listeners.
+(It is recommended to detach listeners when you don't use UnisseySDK anymore, to avoir any possible leak.)
 
-## <a id="unisseyeventemitter"></a>UnisseySdk Events (`EventEmitter`)
+```javascript
+removeListener(eventType: AcquisitionEvent, f: (...args: any[]) => void)
+```
+#### parameters:
+##### `eventType`: `AcquisitionEvent`
+see [UnisseySdk Events](#unisseyevents) for more information on events that can be listened to.
+##### `f`: a function
+see [UnisseySdk Events](#unisseyevents) for more information on events that can be listened to.
+
+#### usage:
+```javascript
+    ...
+    UnisseySdk.removeListener(AcquisitionEvent.STATUS, sdkJsListener_status)
+      .removeListener(AcquisitionEvent.FACE_INFO, sdkJsListener_faceInfo);
+```
+
+#### Return value: **`UnisseySdk`**
+  return reference to UnisseySdk class to allow chaining
+
+
+## <a id="unisseyevents"></a>UnisseySdk Events
 
 **1. Summary**
-UnisseySdk extends `EventEmitter` (https://www.npmjs.com/package/eventemitter3) and sends feedback to the calling application. It allows you to follow the acquisition process and reports useful information.
-You should listen to these events, by registering listeners (with `addListener()` or `on()` - please refer to the example at the top of this documentation).
+UnisseySdk sends feedbacks to the calling application and reports useful information about the acquisition process 
+You should listen to these events, by registering listeners (with `addListener()`  - please refer to the example at the top of this documentation).
 
 Utility values: `import {AcquisitionEvent, StatusEvent, IssueType, FaceInfoType, FaceMoveDirection} from '@unissey/sdk-web-js';`
 
@@ -520,7 +548,7 @@ The **_AcquisitionEvent.STATUS'_** ("status") event gives feedbacks on the statu
 
 Listener implementation:
 ```javascript
-unisseySDKEventEmitter.on(AcquisitionEvent.STATUS, (status:StatusEvent) => {...});
+UnisseySdk.addListener(AcquisitionEvent.STATUS, (status:StatusEvent) => {...});
 ```
 
 Possible values are:
@@ -538,7 +566,7 @@ enum StatusEvent {
 The **_AcquisitionEvent.PROGRESS'_**("progress") event notifies listener about the recording progression.
 Listener implementation:
 ```javascript
-unisseySDKEventEmitter.on(AcquisitionEvent.PROGRESS, (progress:number) => {...});
+UnisseySdk.addListener(AcquisitionEvent.PROGRESS, (progress:number) => {...});
 ```
 `progress` is in the range [0, 1].
 
@@ -550,7 +578,7 @@ The event is sent when UnisseySession.capture() has started and if FaceCheckerOp
 
 Listener implementation:
 ```javascript
-unisseySDKEventEmitter.on(AcquisitionEvent.FACE_INFO, (type:FaceInfoType, value:number) => {...});
+UnisseySdk.addListener(AcquisitionEvent.FACE_INFO, (type:FaceInfoType, value:number) => {...});
 ```
 
 Possible issue types:
@@ -570,7 +598,7 @@ The **_AcquisitionEvent.ISSUE'_**("issue") event is sent when an error occurs.
 
 Listener implementation:
 ```javascript
-unisseySDKEventEmitter.on(AcquisitionEvent.ISSUE, (type:IssueType, value:number) => {...});
+UnisseySdk.addListener(AcquisitionEvent.ISSUE, (type:IssueType, value:number) => {...});
 ```
 Possible issue types are:
 ```javascript
@@ -598,7 +626,7 @@ The **_AcquisitionEvent.ACTIVE_CHALLENGE_**("active-challenge") allows client to
 
 Listener implementation:
 ```javascript
-unisseySDKEventEmitter.on(UnisseySDK.AcquisitionEvent.ACTIVE_CHALLENGE, (activeChallengeEventType:ActiveChallengeEventType, value:number) => {...});
+UnisseySdk.addListener(UnisseySDK.AcquisitionEvent.ACTIVE_CHALLENGE, (activeChallengeEventType:ActiveChallengeEventType, value:number) => {...});
 ```
 Possible activeChallengeEventType types are:
 ```javascript
@@ -793,7 +821,8 @@ else {
 
 | Version | Date       | Description                                           |
 | ------- | ---------- | ----------------------------------------------------- |
-| 0.3.3   | 2024-09-12 | Handle more IAD use cases                             |
+| 0.3.5   | 2024-10-25 | New listening mechanics                               |
+| 0.3.4   | 2024-10-08 | Handle more IAD use cases                             |
 | 0.3.x   | 2023-11-28 | Many improvements and fixes. Remove unisseySdk object |
 | 0.2.x   | 2023-01-01 | SDK.js V2                                             |
 
